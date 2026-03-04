@@ -46,8 +46,9 @@ class WebpConverterApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("图片批量转换工具")
-        self.root.geometry("820x560")
-        self.root.minsize(760, 520)
+        # 调大默认窗口，避免步骤 4 被遮挡
+        self.root.geometry("920x700")
+        self.root.minsize(840, 620)
 
         self.input_files: list[Path] = []
         self.output_dir = tk.StringVar(value=str(Path.cwd()))
@@ -75,7 +76,7 @@ class WebpConverterApp:
         ).pack(anchor=tk.W)
         ttk.Label(
             header,
-            text="当前支持 WebP 转 PNG/JPG，已预留 PNG、RPGMVP 扩展接口。",
+            text="支持 WebP 转 PNG/JPG；若识别到 animated WebP 将自动输出 GIF。",
             foreground="#4a5568",
         ).pack(anchor=tk.W, pady=(4, 0))
 
@@ -108,7 +109,7 @@ class WebpConverterApp:
         self.file_count_label = ttk.Label(file_toolbar, text="已选择 0 个文件")
         self.file_count_label.pack(side=tk.LEFT, padx=(10, 0))
 
-        self.file_list = tk.Listbox(file_box, height=12, activestyle="none", borderwidth=0)
+        self.file_list = tk.Listbox(file_box, height=14, activestyle="none", borderwidth=0)
         self.file_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=(0, 10))
 
         scrollbar = ttk.Scrollbar(file_box, orient=tk.VERTICAL, command=self.file_list.yview)
@@ -138,7 +139,7 @@ class WebpConverterApp:
         self.format_combo.pack(side=tk.LEFT, padx=(6, 16))
         ttk.Label(
             format_row,
-            text="说明：JPG 将使用最高质量保存，无需手动设置质量参数。",
+            text="说明：JPG 按最高质量保存；animated WebP 会自动转为 GIF。",
             foreground="#718096",
         ).pack(side=tk.LEFT)
 
@@ -233,20 +234,26 @@ class WebpConverterApp:
     def _convert_files(self) -> None:
         target_format = self.output_format.get().upper()
         success_count = 0
+        animated_to_gif_count = 0
         failed: list[tuple[str, str]] = []
-
-        suffix = ".png" if target_format == "PNG" else ".jpg"
         total = len(self.input_files)
 
         for index, src in enumerate(self.input_files, start=1):
             try:
-                out = Path(self.output_dir.get()) / f"{src.stem}{suffix}"
                 with Image.open(src) as image:
-                    converted = image.convert("RGB") if target_format == "JPEG" else image
-                    if target_format == "JPEG":
-                        converted.save(out, "JPEG", quality=100, optimize=True)
+                    is_animated = bool(getattr(image, "is_animated", False) and image.n_frames > 1)
+
+                    if is_animated:
+                        out = Path(self.output_dir.get()) / f"{src.stem}.gif"
+                        image.save(out, "GIF", save_all=True)
+                        animated_to_gif_count += 1
+                    elif target_format == "JPEG":
+                        out = Path(self.output_dir.get()) / f"{src.stem}.jpg"
+                        image.convert("RGB").save(out, "JPEG", quality=100, optimize=True)
                     else:
-                        converted.save(out, "PNG")
+                        out = Path(self.output_dir.get()) / f"{src.stem}.png"
+                        image.save(out, "PNG")
+
                 success_count += 1
             except Exception as exc:  # noqa: BLE001
                 failed.append((str(src), str(exc)))
@@ -254,21 +261,30 @@ class WebpConverterApp:
             progress = (index / total) * 100
             self.root.after(0, lambda value=progress: self.progress.set(value))
 
-        self.root.after(0, lambda: self._show_result(success_count, failed))
+        self.root.after(0, lambda: self._show_result(success_count, animated_to_gif_count, failed))
 
-    def _show_result(self, success_count: int, failed: list[tuple[str, str]]) -> None:
+    def _show_result(
+        self,
+        success_count: int,
+        animated_to_gif_count: int,
+        failed: list[tuple[str, str]],
+    ) -> None:
+        summary = (
+            f"成功 {success_count} 个，失败 {len(failed)} 个。"
+            f"\n其中自动识别 animated WebP 并转 GIF：{animated_to_gif_count} 个。"
+        )
+
         if failed:
             err_text = "\n".join(f"- {name}: {reason}" for name, reason in failed)
-            messagebox.showwarning(
-                "部分文件转换失败",
-                f"成功 {success_count} 个，失败 {len(failed)} 个。\n\n{err_text}",
-            )
+            messagebox.showwarning("部分文件转换失败", f"{summary}\n\n{err_text}")
         else:
-            messagebox.showinfo("转换完成", f"成功转换 {success_count} 个文件。")
+            messagebox.showinfo("转换完成", summary)
 
         if self.convert_btn:
             self.convert_btn.config(state=tk.NORMAL)
-        self.status.set(f"完成：成功 {success_count} 个，失败 {len(failed)} 个")
+        self.status.set(
+            f"完成：成功 {success_count} 个，失败 {len(failed)} 个，自动转 GIF {animated_to_gif_count} 个"
+        )
 
 
 def _configure_default_font(root: tk.Tk) -> None:
@@ -294,7 +310,7 @@ def main() -> None:
     root = tk.Tk()
     _configure_default_font(root)
     _configure_style()
-    app = WebpConverterApp(root)
+    WebpConverterApp(root)
     root.mainloop()
 
 
