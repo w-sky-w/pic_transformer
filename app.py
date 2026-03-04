@@ -1,7 +1,7 @@
 import threading
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 from PIL import Image
 
@@ -184,9 +184,22 @@ class WebpConverterApp:
         self.status.set(f"完成：成功 {success_count} 个，失败 {len(failed)} 个")
 
 
+def _configure_default_font(root: tk.Tk) -> None:
+    """Set a readable default UI font without breaking on unsupported systems."""
+    default_font = tkfont.nametofont("TkDefaultFont")
+    available = set(tkfont.families(root))
+
+    if "Microsoft YaHei" in available:
+        default_font.configure(family="Microsoft YaHei", size=10)
+    elif "Segoe UI" in available:
+        default_font.configure(family="Segoe UI", size=10)
+    else:
+        default_font.configure(size=10)
+
+
 def main() -> None:
     root = tk.Tk()
-    root.option_add("*Font", "Microsoft YaHei 10")
+    _configure_default_font(root)
     app = WebpConverterApp(root)
     root.mainloop()
 
